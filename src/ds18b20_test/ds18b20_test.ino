@@ -14,8 +14,10 @@
 /********************************************************************/
 #define ONE_WIRE_BUS 12
 #define UPDATE_TIME 2000
+#define CO2_UPDATE_TIME 15000
 #define HEAT_RELAY_PIN 8
 #define HUMIDIFIER_RELAY_PIN 2
+#define VENTILATION_PIN 3
 
 boolean airAvailable, compostAvailable, humidityAvailable, co2Available;
 
@@ -92,26 +94,26 @@ typedef class {
     _sensorSerial->begin(9600);
   }
   unsigned int readData() {
-    _sensorSerial->write(_readCommand, 9);
-    memset(_response, 0, 9);
-    _sensorSerial->readBytes(_response, 9);
-    byte crc;
-    for (uint8_t i = 1; i < 8; i++) {
-      crc+=_response[i];
-    }
-    crc = 255 - crc;
-    crc++;
-    if (!(_response[0] == 0xFF && _response[1] == 0x86 && _response[8] == crc) ) {
-      co2Available = false;
-      return -1;
-    }
-    else {
-      co2Available = true;
-      unsigned int responseHigh = (unsigned int) _response[2];
-      unsigned int responseLow = (unsigned int) _response[3];
-      unsigned int ppm = (256*responseHigh) + responseLow;
-      return ppm;
-    }
+      byte cmd[9] = {0xFF,0x01,0x86,0x00,0x00,0x00,0x00,0x00,0x79};
+      unsigned char response[9];
+      _sensorSerial->write(cmd, 9);
+      memset(response, 0, 9);
+      _sensorSerial->readBytes(response, 9);
+      int i;
+      byte crc = 0;
+      for (i = 1; i < 8; i++) crc+=response[i];
+      crc = 255 - crc;
+      crc++;
+      
+      if ( !(response[0] == 0xFF && response[1] == 0x86 && response[8] == crc) ) {
+        Serial.println("CRC error: " + String(crc) + " / "+ String(response[8]));
+        return 1;
+      } else {
+        unsigned int responseHigh = (unsigned int) response[2];
+        unsigned int responseLow = (unsigned int) response[3];
+        unsigned int ppm = (256*responseHigh) + responseLow;
+        return ppm;
+      }
   }
   void enableCalibration() {
     _sensorSerial->write(_enableAbcCommand, 9);
@@ -130,12 +132,14 @@ typedef class {
   byte _calibrateCommand[9] = {0xFF, 0x01, 0x87, 0x00, 0x00, 0x00, 0x00, 0x00, 0x78 };
   byte _enableAbcCommand[9] = {0xFF, 0x01, 0x79, 0xA0, 0x00, 0x00, 0x00, 0x00, 0xE6 };
   byte _disableAbcCommand[9] = {0xFF, 0x01, 0x79, 0x00, 0x00, 0x00, 0x00, 0x00, 0x86 };
+  
 } Co2Sensor;
 
 
 /********************************************************************/ 
 RelayController airTemperatureController;
 RelayController humidifierController;
+RelayController co2Controller;
 SoftwareSerial serial(A0, A1);
 Co2Sensor co2Sensor;
 
@@ -154,11 +158,10 @@ void setup(void)
  while (setupHumiditySensor()) {
       delay(50);
     }
-  co2Sensor.setUp(&serial);
-  
   printLCDInfo("Wait...75%");
   setUpAirController();
   setUpHumidityController();
+  setupC02Controller();
   printLCDInfo("Ready!");
   delay(500);
 } 
@@ -190,6 +193,15 @@ void setUpAirController() {
   airAvailable = compostAvailable = true;
 }
 
+void setupC02Controller() {
+  co2Sensor.setUp(&serial);
+  co2Available = true;
+  co2Controller.setUp(VENTILATION_PIN);
+  // Reverse the direction of co2 sensor
+  co2Controller.direction = 0;
+  co2Controller.deviation = 250;
+}
+
 void setUpLCD() {
   lcd.init();                     
   lcd.backlight();
@@ -202,7 +214,7 @@ void printLCDInfo(String info) {
 }
 /********************************************************************/ 
 
-void printDataOnLCD(float airTemperature, float compostTemperature, float humidity, float co2) {
+void printDataOnLCD(float airTemperature, float compostTemperature, float humidity, int co2) {
   lcd.clear();
   lcd.print("A:");
   if (airAvailable) {
@@ -236,17 +248,19 @@ void printDataOnLCD(float airTemperature, float compostTemperature, float humidi
 /********************************************************************/ 
 
 uint32_t timer = 0;
+uint32_t co2Timer = 15000;
 
 
 
-
-
+int co2;
 void loop(void) 
 { 
   if (Serial.available() > 0) {
     processInput();
   }
-  uint32_t deltaTime = millis() - timer;
+  uint32_t millisValue = millis();
+  uint32_t deltaTime = millisValue - timer;
+  uint32_t co2DeltaTime = millisValue - co2Timer;
   if (deltaTime > UPDATE_TIME) {
     timer = millis();
     sensors.requestTemperatures(); // Send the command to get temperature readings    
@@ -254,25 +268,29 @@ void loop(void)
     float airTemperature = sensors.getTempCByIndex(0);
     float compostTemperature = sensors.getTempCByIndex(1);
     float humidity = bme.readHumidity();
-    float co2 = co2Sensor.readData();
     printDataOnLCD(airTemperature, compostTemperature, humidity, co2);
     airTemperatureController.input = airTemperature;
     airTemperatureController.control(deltaTime);
     humidifierController.input = humidity;
     humidifierController.control(deltaTime);   
-    Serial.print("air: ");
+    Serial.print("air:");
     Serial.print(airTemperature);
     Serial.print(' ');
-    Serial.print("compost: ");
+    Serial.print("compost:");
     Serial.print(compostTemperature);
     Serial.print(' ');
-    Serial.print("humidity: ");
+    Serial.print("humidity:");
     Serial.print(humidity);
     Serial.print(' ');
-    Serial.print("co2: ");
+    Serial.print("co2:");
     Serial.println(co2);
-    //TODO: CO2
-  } else delay(10);
+  } 
+  if (co2DeltaTime > CO2_UPDATE_TIME) {
+    co2Timer = millis();
+    co2 = co2Sensor.readData();
+    co2Controller.input = co2;
+    co2Controller.control(co2DeltaTime);
+  }
 } 
 
 void processInput() {
@@ -283,16 +301,22 @@ void processInput() {
   String controllerStr = command.substring(0, separatorIndex);
   RelayController* controller = &humidifierController;
   
+  boolean needToProcessCo2Input = false;
   if (controllerStr == "H") {
     controller = &humidifierController;
   } else if (controllerStr == "A") {
     controller = &airTemperatureController;
-  } //TODO: Co2 controller
+  } else if (controllerStr == "C") {
+    controller = &co2Controller;
+  } else if (controllerStr == "CC") { // Calibration
+    needToProcessCo2Input = true;
+  }
   String stringValue = command.substring(equalIndex+1, command.length());
-//  Serial.println("Controller=" + controllerStr + ";");
-//  Serial.println("Coef=" + coef + ";");
-//  Serial.println("Value=" + stringValue + ";");
   float value = stringValue.toFloat();
+  if (needToProcessCo2Input) {
+    processCo2Input(coef);
+    return;
+  }
   if (coef == "SP") {
     controller->setPoint = value;
   } else if (coef == "DV") {
@@ -301,3 +325,16 @@ void processInput() {
     controller->k = value;
   }
 }
+
+void processCo2Input(String command) {
+  Serial.println("Processing CO2 command. Command=" + command);
+  if (command == "E") {
+    //enable autocalibration
+    co2Sensor.enableCalibration();
+  } else if (command == "D")  {
+    co2Sensor.disableCalibration();
+  } else if (command == "C") {
+    //calibrate
+    co2Sensor.calibrate();
+  }
+} 
