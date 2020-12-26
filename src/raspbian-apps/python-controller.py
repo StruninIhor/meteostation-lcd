@@ -24,7 +24,7 @@ except Exception as e:
     logging.warning("Not connected: ", e)
 
 class ControllerConfig:
-    def __init__(self, port, prefix, setpoint = 0, deviation = 1, k = 0.1) -> None:
+    def __init__(self, port, prefix, setpoint = 0, deviation = 1, k = 0.1):
         logging.info("Creating controller config with prefix %s", prefix)
         self.port = port
         self.prefix = prefix
@@ -36,18 +36,22 @@ class ControllerConfig:
         q.put(f"{self.prefix};D={self.deviation}")
         q.put(f"{self.prefix};K={self.k}");
 
-airConfig = ControllerConfig(comPort, "A", 25, 0.5)
-humidityConfig = ControllerConfig(comPort, "H", 90, 2)
-co2Config = ControllerConfig(comPort, "C", 5000, 200)
-
+airConfig = ControllerConfig(comPort, "A", 24, 0.5)
+humidityConfig = ControllerConfig(comPort, "H", 90, 1)
+co2Config = ControllerConfig(comPort, "C", 5000, 100)
+airConfig.sendSettings()
+humidityConfig.sendSettings()
+co2Config.sendSettings()
 
 receiveFlag = True
 def Transmit():
     while True:
         item = q.get()
         if (item == None):
+            logging.info("Quitting...")
             return
-        strItem = str(item).encode("utf-8");
+        logging.info("Sending command %s", item)
+        strItem = str(item).encode("utf-8")
         comPort.write(strItem)
 
 def Receive():
@@ -73,17 +77,17 @@ def Receive():
 
             
 
-threading.Thread(target=Transmit).start();
-threading.Thread(target=Receive).start();
+threading.Thread(target=Transmit).start()
+threading.Thread(target=Receive).start()
 
 try:
     while True:
-        command = input('Enter command to send. Input exit for exit').rstrip();
-        if (command == "exit"):
+        command = input('Command:').rstrip()
+        if ("exit" in command):
             q.put(None)
             break
         else:
-            q.put(command);
+            q.put(command)
 except:
     q.put(None)
 
