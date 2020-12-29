@@ -1,5 +1,6 @@
 /********************************************************************/
 // First we include the libraries
+#include <EEPROM.h>
 #include <OneWire.h> 
 #include <DallasTemperature.h>
 #include <LiquidCrystal_I2C.h>
