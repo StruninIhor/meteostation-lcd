@@ -18,11 +18,13 @@ Also it allows to control MHZ19B sensor (it allows to calibrate it and disable a
 - Data sent by arduino is gathered by script on raspberry pi server and it is written to postgres database. After that it can be used 
 for display, analyze, alerts and etc.
 ## Results
-- The results should be something like that:\
-<img src="assets/mushrooms_1.jpg?raw=true" height="150" alt="Mushrooms">
-<img src="assets/mushrooms_2.jpg?raw=true" height="150" alt="Mushrooms">
-<img src="assets/mushrooms_3.jpg?raw=true" width="150" alt="Mushrooms">
-- Dashboard with data from Grafana for two days:\
+- The results should be something like that:
+<div>
+<img src="assets/mushrooms_1.jpg?raw=true" height="250" alt="Mushrooms">
+<img src="assets/mushrooms_2.jpg?raw=true" height="250" alt="Mushrooms">
+<img src="assets/mushrooms_3.jpg?raw=true" width="250" alt="Mushrooms">
+</div>
+- Dashboard with data from Grafana for two days:
 <img src="assets/grafana_1.jpg?raw=true" alt="Time series">
 You can see the data plot on the top of the dashboard, and the specific oscillations that are caused by the PID controller. Also, there are last values from sensors displayed on the left side of the dashboard, and CO2 data plot with alert levels on the right bottom side of the dashboard.
 - Dashboard with day average compost and air temperatures:
