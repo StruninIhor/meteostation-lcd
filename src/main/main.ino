@@ -1,5 +1,6 @@
 /********************************************************************/
 // First we include the libraries
+#include <EEPROM.h>
 #include <OneWire.h> 
 #include <DallasTemperature.h>
 #include <LiquidCrystal_I2C.h>
@@ -36,12 +37,38 @@ int signum(float val) {
   return ((val > 0) ? 1 : ((val < 0) ? -1 : 0));
 }
 
+typedef struct {
+  float setPoint;
+  float deviation;
+  float koefficient;
+} ControllerConfig;
+
+/********************************************************************/ 
+// EEPROM CODE
+template <class T> int writeToMemory(int ee, const T& value) {
+  const byte* p = (const byte*)(const void*)&value;
+  int i;
+  for (i = 0; i < sizeof(value); i++) {
+    EEPROM.update(ee++, *p++);
+  }
+  return i;
+}
+
+template <class T> int readFromMemory(int ee, T& value) {
+  byte* p = (byte*)(void*)&value;
+  int i;
+  for (i = 0; i < sizeof(value); i++) {
+    *p++ = EEPROM.read(ee++);
+  }
+  return i;
+}
+/********************************************************************/ 
 /********************************************************************/ 
 ///Temperature controller structure
 typedef class {
   public: 
     int direction = 1;
-    float input, setPoint;
+    float input, setPoint, maxSetPoint, minSetPoint, maxDeviation, minDeviation;
     float deviation = 0;
     float k = 0;
     boolean output;
@@ -68,6 +95,22 @@ typedef class {
       if (F == 1) output = !direction;
       else if (F == -1) output = direction;
       return output;
+    }
+    void loadConfig(ControllerConfig config) {
+      if (minSetPoint < config.setPoint && config.setPoint < maxSetPoint) {
+        setPoint = config.setPoint;
+      }
+      if (minDeviation < config.deviation && config.deviation < maxDeviation) {
+        deviation = config.deviation;
+      }
+      k = config.koefficient;
+    }
+    ControllerConfig getConfig() {
+      ControllerConfig result {};
+      result.setPoint = setPoint;
+      result.deviation = deviation;
+      result.koefficient = k;
+      return result;
     }
     
   private:
@@ -180,9 +223,20 @@ bool setupHumiditySensor() {
 }
 /********************************************************************/ 
 
+const int CONFIG_SIZE = sizeof(ControllerConfig);
+const int HUMIDITY_CONTROLLER_ADDRESS = 0;
+const int AIR_CONTROLLER_ADDRESS = HUMIDITY_CONTROLLER_ADDRESS + CONFIG_SIZE;
+
 void setUpHumidityController() {
   humidifierController.setUp(HUMIDIFIER_RELAY_PIN);
   humidifierController.deviation = 2;
+  humidifierController.maxDeviation = 10;
+  humidifierController.minDeviation = 0;
+  humidifierController.maxSetPoint = 99;
+  humidifierController.minSetPoint = 10;
+  ControllerConfig config;
+  readFromMemory(HUMIDITY_CONTROLLER_ADDRESS, config);
+  humidifierController.loadConfig(config);
   humidityAvailable = true;
 }
 
@@ -190,6 +244,13 @@ void setUpAirController() {
   sensors.begin(); 
   airTemperatureController.setUp(HEAT_RELAY_PIN);
   airTemperatureController.deviation = 1;
+  airTemperatureController.maxDeviation = 10;
+  airTemperatureController.minDeviation = 0.1;
+  airTemperatureController.maxSetPoint = 40;
+  airTemperatureController.minSetPoint = 10;
+  ControllerConfig config;
+  readFromMemory(AIR_CONTROLLER_ADDRESS, config);
+  airTemperatureController.loadConfig(config);
   airAvailable = compostAvailable = true;
 }
 
@@ -300,12 +361,17 @@ void processInput() {
   String coef = command.substring(separatorIndex+1, equalIndex);
   String controllerStr = command.substring(0, separatorIndex);
   RelayController* controller = &humidifierController;
-  
+  int address = 0;
+  boolean saveAddress = false;
   boolean needToProcessCo2Input = false;
   if (controllerStr == "H") {
     controller = &humidifierController;
+    saveAddress = true;
+    address = HUMIDITY_CONTROLLER_ADDRESS;
   } else if (controllerStr == "A") {
     controller = &airTemperatureController;
+    saveAddress = true;
+    address = AIR_CONTROLLER_ADDRESS;
   } else if (controllerStr == "C") {
     controller = &co2Controller;
   } else if (controllerStr == "CC") { // Calibration
@@ -324,10 +390,14 @@ void processInput() {
   } else if (coef == "KD") {
     controller->k = value;
   }
+  if (saveAddress) {
+    ControllerConfig config = controller->getConfig();
+    writeToMemory(address, config);
+  }
 }
 
 void processCo2Input(String command) {
-  Serial.println("Processing CO2 command. Command=" + command);
+  //Serial.println("Processing CO2 command. Command=" + command);
   if (command == "E") {
     //enable autocalibration
     co2Sensor.enableCalibration();
