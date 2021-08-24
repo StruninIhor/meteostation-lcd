@@ -9,12 +9,17 @@ logging.basicConfig(level=logging.DEBUG);
 #     import serial.serialposix as serial
 from serial import Serial
 import psycopg2
+import configparser
+config = configparser.ConfigParser()
+config.read('../../config.ini')
 
-conn = psycopg2.connect(host="192.168.0.196", database="greenhouse", user="postgres", password="postgres")
+db_config = config['db']
+conn = psycopg2.connect(**db_config)
 
+serial_config = config['serial']
 
 q = queue.Queue(10)
-portName = "/dev/ttyUSB0"
+portName = serial_config['port']
 logging.info("Connecting to serial port %s", portName)
 try:
     comPort = Serial(portName, 9600, timeout=1)
